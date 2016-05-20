@@ -1,0 +1,110 @@
+#include <Keypad.h>
+#include <Wire.h>
+#include "RTClib.h"
+#include <LiquidCrystal.h>
+#include <duinos\task.h>
+#include <duinos\semphr.h>
+#include <duinos\queue.h>
+#include <duinos\FreeRTOS.h>
+
+LiquidCrystal lcd(13, 12, 11, 10, 9, 8);//lcd pin 
+RTC_DS1307 RTC;
+int val;
+int interval=0;
+float mv ;
+DateTime now;
+const byte ROWS = 4;
+const byte COLS = 3; 
+char keys[ROWS][COLS] = {
+  {'1','2','3'},
+  {'4','5','6'},
+  {'7','8','9'},
+  {'#','0','*'}
+};
+byte rowPins[ROWS] = {7,1,2,3};//keypad row pin 
+byte colPins[COLS] = {4,5,6}; //keypad col pin 
+Keypad kpd = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
+int future;
+char s[4],s1[4],s2[4];
+
+
+
+
+xSemaphoreHandle Eyewriter;
+declareTaskLoop(realtime_task);
+declareTaskLoop(TempTask);
+
+
+
+taskLoop(realtime_task)
+{
+ 
+xSemaphoreTake(Eyewriter, 99999999);
+for(;;)
+{ 
+   now = RTC.now();
+   int a=now.hour(),b=now.minute() ,c=now.second();
+   itoa(a,s,10);itoa(b,s1,10);itoa(c,s2,10);
+   
+   if(now.second()==0){lcd.clear();}
+   
+   lcd.setCursor(0, 1);lcd.print(s);
+   lcd.setCursor(3, 1);lcd.print(":");
+   lcd.setCursor(4, 1); lcd.print(s1);
+   lcd.setCursor(7, 1);lcd.print(":");
+   lcd.setCursor(8, 1); lcd.print(s2);
+   
+   char key = kpd.getKey(); 
+   if(key) 
+    {
+      lcd.setCursor(3, 0);lcd.print("inte");
+      lcd.setCursor(9, 0);lcd.print(key);
+	  interval=key-'0';
+      future=now.second()+ interval;
+      future=future%60;
+    }
+	
+ if(interval==0){ future=now.second()+ interval;future=future%60;}
+     
+if(now.second()==future)
+{
+ resumeTask(TempTask);
+ xSemaphoreGive( Eyewriter); 
+}
+
+ } }
+
+taskLoop(TempTask)
+{
+xSemaphoreTake(Eyewriter, 99999);
+for(;;)
+{ 
+  val = analogRead(0);
+  float mv = ( val/1024.0)*5000; 
+  int cel = mv/10;
+  lcd.setCursor(0, 0); lcd.print(cel);
+  
+  future=future+ interval;
+  future=future%60;  
+  xSemaphoreGive( Eyewriter); 
+  suspend(); 
+ }}
+
+
+
+void setup() 
+{
+    lcd.begin(16, 2);
+    Wire.begin();
+    RTC.begin();
+    RTC.adjust(DateTime(__DATE__, __TIME__));
+	
+   vSemaphoreCreateBinary( Eyewriter );
+   createTaskLoop(TempTask, 1);
+   createTaskLoop(realtime_task, 1);
+}
+
+void loop() 
+{
+    nextTask(); 
+}
